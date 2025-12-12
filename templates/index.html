@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>MR DEVILCOOKIE SERVER PANEL</title>
+<style>
+body{margin:0;padding:0;background:#003366;color:white;font-family:Arial}
+.container{width:90%;max-width:800px;margin:20px auto}
+.card{background:rgba(255,255,255,0.12);padding:20px;margin-bottom:20px;border-radius:12px;box-shadow:0 0 8px rgba(0,0,0,0.3)}
+.card h2{text-align:center;margin-top:0}
+label{display:block;margin-top:10px;font-weight:bold}
+input,button{width:100%;padding:12px;border-radius:8px;border:none;margin-top:6px;font-size:15px}
+button{cursor:pointer;font-weight:bold}
+.green{background:#00c853;color:white}
+.red{background:#d50000;color:white}
+#log{height:220px;overflow-y:auto;background:#00000055;border-radius:8px;padding:10px;font-family:monospace}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+  <div class="card">
+    <h2>LIVE MONITOR</h2>
+    <p>Uptime: <span id="uptimeValue">0s</span></p>
+    <p>Active Tasks: <span id="activeTasks">0</span></p>
+    <p>Messages Sent: <span id="sent">0</span></p>
+    </div>
+  
+  <div class="card">
+    <h2>START TASK</h2>
+    <label for="cookie">Cookie File </label>
+    <input type="file" id="cookie" accept=".txt">
+    
+    <label for="msg">Message File </label>
+    <input type="file" id="msg" accept=".txt">
+    
+    <label for="thread">Thread ID </label>
+    <input type="text" id="thread" placeholder="e.g., 100000000000000">
+    
+    <label for="delay">Delay (Seconds):</label>
+    <input type="number" id="delay" value="10" placeholder="e.g., 10">
+    
+    <label for="haters">Haters Name </label>
+    <input type="text" id="haters" placeholder="e.g., Name1">
+
+    <label for="last">Last Here Name </label>
+    <input type="text" id="last" placeholder="e.g., LName1">
+
+    <button id="startBtn" class="green">START TASK</button>
+  </div>
+  
+  <div class="card">
+    <h2>STOP TASK</h2>
+    <label for="taskIdInput">Task ID:</label>
+    <input type="number" id="taskIdInput" placeholder="Enter Task ID to stop">
+    <button id="stopBtn" class="red">STOP TASK</button>
+  </div>
+  
+  <div class="card">
+    <h2>LOG</h2>
+    <pre id="log">Awaiting connection...</pre>
+  </div>
+
+</div>
+
+<script>
+const logElement = document.getElementById("log");
+const ws = new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.host+"/ws");
+
+function log(message) {
+  const now = new Date();
+  const time = now.toLocaleTimeString();
+  logElement.innerHTML += `[${time}] ${message}\n`;
+  logElement.scrollTop = logElement.scrollHeight; // Scroll to bottom
+}
+
+ws.onopen = () => log(" CONNECTED to Server.");
+ws.onclose = () => log(" DISCONNECTED from Server.");
+ws.onerror = (e) => log(" WS Error: " + e.message);
+
+ws.onmessage = evt => {
+  let d = JSON.parse(evt.data);
+  
+  if (d.type === "log") log(d.message);
+
+  //  FIX: Task ID     STOP   
+  if (d.type === "task_started") {
+      log(` TASK STARTED. ID: ${d.taskId}. Auto-filling STOP field.`);
+      document.getElementById("taskIdInput").value = d.taskId; 
+  }
+
+  if(d.type==="stopped") log(` TASK ID ${d.taskId} STOPPED.`);
+
+  if(d.type==="monitor_data"){
+    document.getElementById("uptimeValue").textContent = `${Math.floor(d.uptime / 3600)}h ${Math.floor((d.uptime % 3600) / 60)}m ${d.uptime % 60}s`;
+    document.getElementById("activeTasks").textContent=d.activeTasks;
+    document.getElementById("sent").textContent=d.totalSent;
+    //  FIX 4: monitor_data  totalFailed      
+  }
+}
+
+// 1.5          
+setInterval(()=>{ 
+  if(ws.readyState===1) ws.send(JSON.stringify({type:"monitor"})) 
+},1500);
+
+// START  
+document.getElementById("startBtn").onclick=()=>{
+  let c=document.getElementById("cookie").files[0];
+  let m=document.getElementById("msg").files[0];
+
+  if(!c||!m) return log(" MISSING FILES");
+
+  let r1=new FileReader(), r2=new FileReader();
+  r1.onload=e1=>{
+    r2.onload=e2=>{
+      if (ws.readyState !== 1) {
+        return log(" WebSocket not ready. Please wait for connection.");
+      }
+      ws.send(JSON.stringify({
+        type:"start",
+        cookieContent:e1.target.result,
+        messageContent:e2.target.result,
+        threadID:document.getElementById("thread").value,
+        delay:document.getElementById("delay").value,
+        hatersName:document.getElementById("haters").value,
+        lastHereName:document.getElementById("last").value
+      }));
+      log(" START request sent to server.");
+    }
+    r2.readAsText(m);
+  }
+  r1.readAsText(c);
+};
+
+// STOP  
+document.getElementById("stopBtn").onclick=()=>{
+    const taskId = document.getElementById("taskIdInput").value;
+    if (!taskId) {
+        return log(" Please enter a Task ID to stop.");
+    }
+    
+    if (ws.readyState !== 1) {
+        return log(" WebSocket not ready. Cannot send stop command.");
+    }
+    
+    ws.send(JSON.stringify({
+        type: "stop_by_id",
+        taskId: taskId
+    }));
+    log(` STOP request sent for Task ID: ${taskId}`);
+};
+
+</script>
+</body>
+</html>
